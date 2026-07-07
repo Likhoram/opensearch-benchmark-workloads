@@ -240,6 +240,7 @@ def compute_ground_truth(vectors, queries, num_docs, k, space_type, num_workers,
     start_idx = 0
 
     is_fixed = distribution == "fixed"
+    offsets_file = None
 
     if not is_fixed:
         offsets_file = os.path.join(tmp_dir, "__nested_gt_offsets.npy")
@@ -257,30 +258,27 @@ def compute_ground_truth(vectors, queries, num_docs, k, space_type, num_workers,
 
     worker_fn = _worker_compute_ground_truth_fixed if is_fixed else _worker_compute_ground_truth
 
-    if num_workers == 1:
-        results_list = [worker_fn(worker_args[0])]
-    else:
-        with mp.Pool(processes=num_workers) as pool:
-            results_list = pool.map(worker_fn, worker_args)
+    try:
+        if num_workers == 1:
+            results_list = [worker_fn(worker_args[0])]
+        else:
+            with mp.Pool(processes=num_workers) as pool:
+                results_list = pool.map(worker_fn, worker_args)
 
-    # Assemble results in order
-    results_list.sort(key=lambda x: x[0])
-    neighbors = np.zeros((num_queries, k), dtype="int32")
-    for worker_id, start, result_chunk in results_list:
-        neighbors[start:start + len(result_chunk)] = result_chunk
+        # Assemble results in order
+        results_list.sort(key=lambda x: x[0])
+        neighbors = np.zeros((num_queries, k), dtype="int32")
+        for worker_id, start, result_chunk in results_list:
+            neighbors[start:start + len(result_chunk)] = result_chunk
 
-    elapsed = time.time() - start_time
-    print(f"  Done in {elapsed:.1f}s ({num_queries / elapsed:.1f} queries/sec)")
+        elapsed = time.time() - start_time
+        print(f"  Done in {elapsed:.1f}s ({num_queries / elapsed:.1f} queries/sec)")
 
-    # Cleanup temp files
-    for tmp_file in [vectors_file, queries_file]:
-        if os.path.exists(tmp_file):
-            os.remove(tmp_file)
-    if not is_fixed:
-        if os.path.exists(offsets_file):
-            os.remove(offsets_file)
-
-    return neighbors
+        return neighbors
+    finally:
+        for tmp_file in [vectors_file, queries_file, offsets_file]:
+            if tmp_file and os.path.exists(tmp_file):
+                os.remove(tmp_file)
 
 
 def verify_ground_truth(vectors, queries, neighbors, num_docs, doc_offsets, space_type):
