@@ -35,14 +35,14 @@ Conversion logic reference (from k-NN plugin SpaceType.java, Faiss.java, Lucene.
 Usage:
     # Full computation (brute-force k=1000 neighbors + distances + conversions):
     python enrich_radial_distances.py \\
-        --input cohere-1m.hdf5 \\
-        --output cohere-1m-enriched.hdf5 \\
+        --input cohere-10m.hdf5 \\
+        --output cohere-10m-radial-knn1000.hdf5 \\
         --space-type innerproduct
 
     # Only compute distances for existing neighbors (no brute-force):
     python enrich_radial_distances.py \\
-        --input cohere-1m.hdf5 \\
-        --output cohere-1m-enriched.hdf5 \\
+        --input cohere-10m.hdf5 \\
+        --output cohere-10m-radial-knn1000.hdf5 \\
         --space-type innerproduct \\
         --skip-neighbor-computation
 """
