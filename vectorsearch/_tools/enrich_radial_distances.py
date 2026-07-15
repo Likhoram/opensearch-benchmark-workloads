@@ -51,7 +51,7 @@ import argparse
 import h5py
 import numpy as np
 import sys
-import time
+from tqdm import tqdm
 
 
 def calculate_distances_batch(queries, corpus, space_type):
@@ -131,9 +131,9 @@ def compute_knn_bruteforce(f_in, space_type, k=1000, query_batch_size=100, corpu
     neighbors = np.empty((num_queries, k), dtype=np.int32)
     distances = np.empty((num_queries, k), dtype=np.float32)
 
-    start_time = time.time()
-
-    for q_start in range(0, num_queries, query_batch_size):
+    for q_start in tqdm(range(0, num_queries, query_batch_size),
+                        total=(num_queries + query_batch_size - 1) // query_batch_size,
+                        desc="Brute force"):
         q_end = min(q_start + query_batch_size, num_queries)
         batch_queries = test[q_start:q_end]
         batch_size = q_end - q_start
@@ -148,22 +148,14 @@ def compute_knn_bruteforce(f_in, space_type, k=1000, query_batch_size=100, corpu
 
         for i in range(batch_size):
             if k < num_corpus:
-                top_k_idx = np.argpartition(all_dists[i], k)[:k]
+                top_k_idx = np.argpartition(all_dists[i], k - 1)[:k]
                 top_k_idx = top_k_idx[np.argsort(all_dists[i][top_k_idx])]
             else:
                 top_k_idx = np.argsort(all_dists[i])[:k]
             neighbors[q_start + i] = top_k_idx
             distances[q_start + i] = all_dists[i][top_k_idx]
 
-        elapsed = time.time() - start_time
-        queries_done = q_end
-        qps = queries_done / elapsed if elapsed > 0 else 0
-        eta = (num_queries - queries_done) / qps if qps > 0 else 0
-        print(f"  Processed {queries_done}/{num_queries} queries "
-              f"({elapsed:.1f}s elapsed, {qps:.1f} q/s, ETA {eta:.0f}s)")
-
-    total_time = time.time() - start_time
-    print(f"\nBrute force complete in {total_time:.1f}s")
+    print("Brute force complete.")
     return neighbors, distances
 
 
@@ -181,18 +173,10 @@ def compute_distances_for_existing_neighbors(f_in, space_type):
     print(f"Computing distances for existing {k} neighbors per query...")
     distances = np.empty((num_queries, k), dtype=np.float32)
 
-    start_time = time.time()
-    for i in range(num_queries):
+    for i in tqdm(range(num_queries), desc="Computing distances"):
         neighbor_ids = neighbors_ds[i]
         corpus_vecs = train[neighbor_ids]
         distances[i] = calculate_distance_single(test[i], corpus_vecs, space_type)
-
-        if (i + 1) % 1000 == 0:
-            elapsed = time.time() - start_time
-            print(f"  Processed {i + 1}/{num_queries} queries ({elapsed:.1f}s)")
-
-    total_time = time.time() - start_time
-    print(f"Distance computation complete in {total_time:.1f}s")
     return distances
 
 
