@@ -163,7 +163,8 @@ def compute_distances_for_existing_neighbors(f_in, space_type):
     """Compute distances for already-stored neighbors (fast path when neighbors exist).
 
     Returns:
-        distances: (num_queries, k) float32 array of raw distances
+        neighbors: (num_queries, k) int array of corpus indices, sorted nearest-first
+        distances: (num_queries, k) float32 array of raw distances, sorted ascending
     """
     train = f_in["train"]
     test = f_in["test"][:]
@@ -172,12 +173,19 @@ def compute_distances_for_existing_neighbors(f_in, space_type):
 
     print(f"Computing distances for existing {k} neighbors per query...")
     distances = np.empty((num_queries, k), dtype=np.float32)
+    sorted_neighbors = np.empty((num_queries, k), dtype=neighbors_ds.dtype)
 
     for i in tqdm(range(num_queries), desc="Computing distances"):
         neighbor_ids = neighbors_ds[i]
-        corpus_vecs = train[neighbor_ids]
-        distances[i] = calculate_distance_single(test[i], corpus_vecs, space_type)
-    return distances
+        # HDF5 fancy indexing requires indices in increasing order
+        sort_order = np.argsort(neighbor_ids)
+        corpus_vecs = train[neighbor_ids[sort_order]][np.argsort(sort_order)]
+        dists = calculate_distance_single(test[i], corpus_vecs, space_type)
+        # Sort both by distance (nearest first)
+        dist_order = np.argsort(dists)
+        distances[i] = dists[dist_order]
+        sorted_neighbors[i] = neighbor_ids[dist_order]
+    return sorted_neighbors, distances
 
 
 def main():
@@ -223,13 +231,12 @@ def main():
             if "neighbors" not in f_in:
                 print("ERROR: --skip-neighbor-computation requires existing neighbors dataset")
                 sys.exit(1)
-            new_neighbors = f_in["neighbors"][:]
-            new_distances = compute_distances_for_existing_neighbors(f_in, args.space_type)
+            new_neighbors, new_distances = compute_distances_for_existing_neighbors(f_in, args.space_type)
         elif existing_k >= args.k:
             print(f"Existing neighbors already have k={existing_k} >= {args.k}, "
                   f"just computing distances.")
-            new_neighbors = f_in["neighbors"][:, :args.k]
-            new_distances = compute_distances_for_existing_neighbors(f_in, args.space_type)
+            new_neighbors, new_distances = compute_distances_for_existing_neighbors(f_in, args.space_type)
+            new_neighbors = new_neighbors[:, :args.k]
             new_distances = new_distances[:, :args.k]
         else:
             new_neighbors, new_distances = compute_knn_bruteforce(
