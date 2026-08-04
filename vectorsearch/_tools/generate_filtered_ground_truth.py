@@ -138,7 +138,7 @@ def main():
 
         for i in range(batch_end - batch_start):
             dists = batch_dists[i]
-            top_k_idx = np.argpartition(dists, args.k)[:args.k]
+            top_k_idx = np.argpartition(dists, args.k - 1)[:args.k]
             top_k_idx = top_k_idx[np.argsort(dists[top_k_idx])]
             neighbors[batch_start + i] = candidate_ids[top_k_idx]
             distances[batch_start + i] = dists[top_k_idx]
