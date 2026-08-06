@@ -263,7 +263,7 @@ def main():
                 del f_out[name]
             f_out.create_dataset(name, data=data)
 
-        write_dataset("id", shuffled_ids)
+        write_dataset("attributes", shuffled_ids.reshape(-1, 1).astype(np.int64))
         write_dataset("neighbors", neighbors_arr)
         write_dataset("distances", distances_arr)
         write_dataset("faiss_max_distance", faiss_max_distance)
