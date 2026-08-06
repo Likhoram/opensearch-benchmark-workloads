@@ -18,6 +18,7 @@
     "hnsw_ef_construction": 256,
 
     "radial_search_type": "max_distance",
+    "filter_id_max": 100000,
     "query_k": 100,
 
     "filter_type": "efficient",

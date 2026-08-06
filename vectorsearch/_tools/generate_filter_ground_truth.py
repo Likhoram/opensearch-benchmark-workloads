@@ -281,9 +281,9 @@ def main():
     print(f"  id:        {shuffled_ids.shape}")
     print(f"  neighbors: {neighbors_arr.shape} (padded with -1)")
     print(f"  distances: {distances_arr.shape}")
-    print(f"\nTo benchmark at 10% filter:")
-    print(f'  filter_body: {{"range": {{"id": {{"lte": {int(0.1 * num_docs)}}}}}}}')
-    print(f"  OSB reads neighbors filtered by id <= {int(0.1 * num_docs)} as ground truth")
+    print(f"\nSupports any filter ratio >= {args.min_filter_ratio * 100:.2f}%.")
+    print(f"Set filter_id_max = filter_ratio * {num_docs} in the param file.")
+    print(f"Example for 10%: filter_id_max={int(0.1 * num_docs)}")
 
 
 if __name__ == "__main__":
