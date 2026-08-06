@@ -39,9 +39,9 @@
         "id-field-name": "{{ id_field_name }}",
         "body": {{ query_body | default ({}) | tojson }},
         "filter_body": {{ filter_body | default ({}) | tojson }},
-        "filter_type": {{filter_type  | default ({}) | tojson }},
+        "filter_type": {{filter_type  | default ({}) | tojson }}
         {% if filter_id_max is defined %}
-        "filter_id_max": {{ filter_id_max }},
+        ,"filter_id_max": {{ filter_id_max }}
         {% endif %}
     },
     "clients": {{ search_clients | default(1)}}

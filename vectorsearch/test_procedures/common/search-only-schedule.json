@@ -41,8 +41,7 @@
         "filter_type": {{filter_type  | default ({}) | tojson }},
         {% if filter_id_max is defined %}
         "filter_id_max": {{ filter_id_max }},
-        {% endif %}
-        "repetitions": {{ number_of_repetitions | default(1)}}
+        {% endif %}"repetitions": {{ number_of_repetitions | default(1)}}
     },
     "clients": {{ search_clients | default(1)}}
 }
