@@ -236,23 +236,15 @@ def main():
         neighbors_arr[i, :len(n)] = n
         distances_arr[i, :len(d)] = d
 
-    # Compute thresholds at min_filter_ratio (k-th filtered neighbor per query)
-    # For each query, filter neighbors by shuffled_id <= min_filter_max,
-    # take k-th distance as threshold
-    threshold_distances = np.full((num_queries, args.k), np.nan, dtype=np.float32)
-    for i in range(num_queries):
-        row = neighbors_arr[i]
-        drow = distances_arr[i]
-        valid = row[row >= 0]
-        dvalid = drow[row >= 0]
-        passing = valid[shuffled_ids[valid] <= min_filter_max]
-        dpassing = dvalid[shuffled_ids[valid] <= min_filter_max]
-        if len(passing) >= args.k:
-            threshold_distances[i] = dpassing[:args.k]
-
-    faiss_max_distance = threshold_distances.copy()
-    lucene_max_distance = -threshold_distances if args.space_type == "innerproduct" else threshold_distances.copy()
-    min_score = raw_distance_to_opensearch_score(threshold_distances, args.space_type)
+    # Store engine-specific threshold arrays at FULL width (same shape as
+    # neighbors/distances). At query time OSB applies the same filter mask it
+    # uses for the neighbor list, then reads index k-1 — giving the correct
+    # per-ratio radial threshold for any filter_id_max. Without a filter,
+    # index k-1 directly is the unfiltered top-k threshold (the first k
+    # entries of the universal list are the unfiltered top-k).
+    faiss_max_distance = distances_arr.copy()
+    lucene_max_distance = -distances_arr if args.space_type == "innerproduct" else distances_arr.copy()
+    min_score = raw_distance_to_opensearch_score(distances_arr, args.space_type)
 
     # Write output
     shutil.copy2(args.input, args.output)
