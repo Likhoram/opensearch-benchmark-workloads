@@ -20,18 +20,20 @@ Usage:
 Output HDF5 contains:
     train:               (N, dim)   float32  — all vectors (copied from input)
     test:                (Q, dim)   float32  — query vectors (copied from input)
-    id:                  (N,)       int64    — shuffled doc IDs (0 to N-1)
+    attributes:          (N, 1)     int64    — shuffled doc IDs (0 to N-1), ingested as the "id" field
     neighbors:           (Q, M)     int64    — universal neighbor lists (-1 padded)
-    distances:           (Q, M)     float32  — distances for each neighbor (-1 padded)
-    faiss_max_distance:  (Q, k)     float32  — per-query Faiss radial thresholds
-    faiss_min_score:     (Q, k)     float32  — per-query Faiss min_score thresholds
-    lucene_max_distance: (Q, k)     float32  — per-query Lucene radial thresholds
-    lucene_min_score:    (Q, k)     float32  — per-query Lucene min_score thresholds
+    distances:           (Q, M)     float32  — raw distances for each neighbor (-1 padded)
+    faiss_max_distance:  (Q, M)     float32  — engine-converted thresholds, mirrors neighbors
+    faiss_min_score:     (Q, M)     float32  — engine-converted thresholds, mirrors neighbors
+    lucene_max_distance: (Q, M)     float32  — engine-converted thresholds, mirrors neighbors
+    lucene_min_score:    (Q, M)     float32  — engine-converted thresholds, mirrors neighbors
 
 Where M = max universal neighbor list size across all queries (padded with -1).
 
-The threshold datasets (faiss_max_distance etc.) are computed at min_filter_ratio,
-i.e. distance to the k-th neighbor when only min_filter_ratio fraction of docs pass.
+The threshold datasets are stored at full width, mirroring the universal neighbor
+list. At query time OSB applies the same id <= filter_id_max mask it uses for the
+neighbor list, then reads index k-1 — the k-th passing neighbor's threshold, which
+is the correct radial radius for that filter ratio (dynamic per-ratio threshold).
 """
 
 import argparse
