@@ -18,6 +18,9 @@ expects at query time:
     innerproduct: score = 1 / (1 + d)      if d >= 0
                   score = -d + 1           if d < 0
     cosine:       score = (2 - d) / 2
+
+Distance functions and score translations per space type are documented at
+https://docs.opensearch.org/latest/mappings/supported-field-types/knn-spaces/
 """
 
 import numpy as np
