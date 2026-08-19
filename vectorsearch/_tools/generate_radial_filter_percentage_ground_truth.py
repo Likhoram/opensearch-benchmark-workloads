@@ -1,11 +1,11 @@
 """
 Generate a filtered radial search dataset with per-percentage ground truth.
 
-Each document gets boolean filter attribute fields (e.g. filter10pct = 'true'
-or 'false'). For each percentage, exactly that fraction of documents is marked
-'true', chosen uniformly at random. Filtering with a term query
-(e.g. {"term": {"filter10pct": "true"}}) therefore passes exactly that
-percentage of documents, scattered randomly across the HNSW graph.
+Each document gets one boolean filter attribute field per requested percentage,
+named filter<P>pct (e.g. filter1pct, filter25pct). For each field, exactly that
+fraction of documents is marked 'true', chosen uniformly at random. Filtering
+with a term query (e.g. {"term": {"filter25pct": "true"}}) therefore passes
+exactly that percentage of documents, scattered randomly across the HNSW graph.
 
 For each percentage, ground truth is computed by brute force over the passing
 documents only: the top take_n nearest passing docs per query, plus per-query
@@ -19,114 +19,117 @@ Usage:
         --input cohere-1m.hdf5 \
         --output cohere-1m-radial-filter-percentage.hdf5 \
         --space-type innerproduct \
-        --percentages 0.1 1 10 60 \
+        --percentages 0.1 1 5 10 25 50 75 90 99 \
         --take-n 1000
 
-Output HDF5 (for --percentages 0.1 1 10 60):
-    train:                       (N, dim)     float32  — corpus vectors (copied from input)
-    test:                        (Q, dim)     float32  — query vectors (copied from input)
-    attributes:                  (N, P)       |S8      — 'true'/'false' per percentage field
-    neighbors_01pct:             (Q, take_n)  int64    — top take_n passing docs, nearest first
-    distances_01pct:             (Q, take_n)  float32  — raw distances for those neighbors
-    faiss_max_distance_01pct:    (Q, take_n)  float32  — engine threshold values
-    faiss_min_score_01pct:       (Q, take_n)  float32
-    lucene_max_distance_01pct:   (Q, take_n)  float32
-    lucene_min_score_01pct:      (Q, take_n)  float32
-    ... same six datasets per percentage, suffixed _1pct, _10pct, _60pct
+Output HDF5 layout (one set of columns per percentage, suffixed by its field
+name — e.g. for percentage 10 the suffix is 10pct):
+    train:                      (N, dim)     float32  — corpus vectors (copied from input)
+    test:                       (Q, dim)     float32  — query vectors (copied from input)
+    attributes:                 (N, P)       |S8      — 'true'/'false' per percentage field
+    neighbors_<suffix>:         (Q, take_n)  int64    — top take_n passing docs, nearest first
+    distances_<suffix>:         (Q, take_n)  float32  — raw distances for those neighbors
+    faiss_max_distance_<suffix>, faiss_min_score_<suffix>,
+    lucene_max_distance_<suffix>, lucene_min_score_<suffix>:
+                                (Q, take_n)  float32  — per-engine radial thresholds
 
 Attribute column order matches --percentages order and maps to index fields:
-    0.1 -> filter01pct, 1 -> filter1pct, 10 -> filter10pct, 60 -> filter60pct
+    percentage P -> field filter<suffix> (0.1 -> filter01pct, 25 -> filter25pct, ...)
 
 Requires take_n <= passing docs at the smallest percentage.
 """
 
 import argparse
+import shutil
+import time
+
 import h5py
 import numpy as np
-import shutil
-import sys
-import time
+
+from radial_threshold_utils import (
+    SUPPORTED_SPACE_TYPES,
+    calculate_distances_batch,
+    engine_threshold_values,
+)
+
+ENGINES = ("faiss", "lucene")
 
 
 def pct_suffix(pct):
-    """0.1 -> '01pct', 1 -> '1pct', 10 -> '10pct', 60 -> '60pct'"""
+    """0.1 -> '01pct', 1 -> '1pct', 25 -> '25pct'"""
     if pct < 1:
         return f"0{str(pct).replace('0.', '')}pct"
     return f"{int(pct)}pct"
 
 
-def calculate_distances_batch(queries, corpus, space_type):
-    if space_type == "l2":
-        q_norms = np.sum(queries ** 2, axis=1, keepdims=True)
-        c_norms = np.sum(corpus ** 2, axis=1, keepdims=True).T
-        dots = queries @ corpus.T
-        return q_norms + c_norms - 2 * dots
-    elif space_type == "innerproduct":
-        return -(queries @ corpus.T)
-    elif space_type == "cosine":
-        q_norms = np.linalg.norm(queries, axis=1, keepdims=True)
-        c_norms = np.linalg.norm(corpus, axis=1, keepdims=True).T
-        dots = queries @ corpus.T
-        return 1 - dots / (q_norms * c_norms)
-    else:
-        raise ValueError(f"Unsupported space type: {space_type}")
-
-
-def raw_distance_to_opensearch_score(distances, space_type):
-    if space_type == "l2":
-        return 1.0 / (1.0 + distances)
-    elif space_type == "innerproduct":
-        return np.where(distances >= 0, 1.0 / (1.0 + distances), -distances + 1.0)
-    elif space_type == "cosine":
-        return (2.0 - distances) / 2.0
-    else:
-        raise ValueError(f"Unsupported space type: {space_type}")
-
-
-def main():
+def parse_args():
     parser = argparse.ArgumentParser(
         description="Generate per-percentage filtered radial ground truth for vector search benchmarks")
     parser.add_argument("--input", required=True, help="Input HDF5 with train/test")
     parser.add_argument("--output", required=True, help="Output HDF5 path")
-    parser.add_argument("--space-type", required=True, choices=["l2", "innerproduct", "cosine"])
-    parser.add_argument("--percentages", type=float, nargs="+", default=[0.1, 1, 10, 60],
-                        help="Filter percentages (default: 0.1 1 10 60)")
+    parser.add_argument("--space-type", required=True, choices=list(SUPPORTED_SPACE_TYPES))
+    parser.add_argument("--percentages", type=float, nargs="+",
+                        default=[0.1, 1, 5, 10, 25, 50, 75, 90, 99],
+                        help="Filter percentages (default: 0.1 1 5 10 25 50 75 90 99)")
     parser.add_argument("--take-n", type=int, default=1000,
                         help="Neighbors stored per query per percentage (default: 1000)")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--query-batch-size", type=int, default=100)
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    with h5py.File(args.input, "r") as f_in:
+
+def load_input(path):
+    """Load corpus and query vectors, failing clearly if keys are missing."""
+    with h5py.File(path, "r") as f_in:
+        for key in ("train", "test"):
+            if key not in f_in:
+                raise ValueError(f"Input {path} is missing dataset '{key}'. "
+                                 f"Available keys: {sorted(f_in.keys())}")
         print("Loading dataset...")
         train = f_in["train"][:]
         test = f_in["test"][:]
-    num_docs, num_queries = train.shape[0], test.shape[0]
     print(f"  train: {train.shape}, test: {test.shape}")
+    return train, test
 
+
+def validate_args(args, num_docs):
+    """Validate percentages and take_n before doing any work. Returns suffixes."""
+    if args.take_n <= 0:
+        raise ValueError(f"--take-n must be positive, got {args.take_n}")
     suffixes = [pct_suffix(p) for p in args.percentages]
-    print(f"Percentages: {args.percentages} -> fields filter{{{', filter'.join(suffixes)}}}")
-
-    # Validate take_n against smallest percentage
+    if len(set(suffixes)) != len(suffixes):
+        raise ValueError(f"Percentages {args.percentages} map to duplicate "
+                         f"field suffixes {suffixes}")
     for pct in args.percentages:
+        if not 0 < pct < 100:
+            raise ValueError(f"Percentages must be in (0, 100), got {pct}")
         n_pass = int(round(pct / 100.0 * num_docs))
         if n_pass < args.take_n:
-            print(f"ERROR: {pct}% passes only {n_pass} docs < take_n={args.take_n}. "
-                  f"Reduce --take-n or raise the percentage.")
-            sys.exit(1)
+            raise ValueError(f"{pct}% passes only {n_pass} docs < take_n={args.take_n}. "
+                             f"Reduce --take-n or raise the percentage.")
+    return suffixes
 
-    # Assign attributes: for each percentage, mark exactly n_pass random docs 'true'
-    rng = np.random.default_rng(args.seed)
-    attributes = np.full((num_docs, len(args.percentages)), b"false", dtype="|S8")
+
+def assign_attributes(num_docs, percentages, suffixes, seed):
+    """For each percentage, mark exactly n_pass random docs 'true'.
+
+    Returns the (num_docs, P) attribute matrix and per-column sorted passing ids.
+    """
+    rng = np.random.default_rng(seed)
+    attributes = np.full((num_docs, len(percentages)), b"false", dtype="|S8")
     passing_ids = {}
-    for col, pct in enumerate(args.percentages):
+    for col, pct in enumerate(percentages):
         n_pass = int(round(pct / 100.0 * num_docs))
         chosen = rng.permutation(num_docs)[:n_pass]
         attributes[chosen, col] = b"true"
         passing_ids[col] = np.sort(chosen)
         print(f"  filter{suffixes[col]}: exactly {n_pass} docs marked true")
+    return attributes, passing_ids
 
-    # Per-percentage output arrays
+
+def compute_ground_truth(train, test, passing_ids, suffixes, args):
+    """Filter-first brute force: per percentage, top take_n passing docs per query."""
+    num_queries = test.shape[0]
     out = {}
     for s in suffixes:
         out[s] = {
@@ -135,7 +138,7 @@ def main():
         }
 
     print(f"\nComputing ground truth for {num_queries} queries "
-          f"x {len(args.percentages)} percentages (take_n={args.take_n})...")
+          f"x {len(suffixes)} percentages (take_n={args.take_n})...")
     t0 = time.time()
     for batch_start in range(0, num_queries, args.query_batch_size):
         batch_end = min(batch_start + args.query_batch_size, num_queries)
@@ -157,8 +160,11 @@ def main():
                 out[s]["neighbors"][batch_start + i] = ids[idx]
                 out[s]["distances"][batch_start + i] = d[idx]
     print(f"Done in {time.time()-t0:.0f}s")
+    return out
 
-    # Write output
+
+def write_output(args, attributes, out, suffixes):
+    """Copy input to output and add/replace attribute + per-percentage datasets."""
     shutil.copy2(args.input, args.output)
     with h5py.File(args.output, "a") as f_out:
         def write(name, data):
@@ -171,17 +177,28 @@ def main():
             dist = out[s]["distances"]
             write(f"neighbors_{s}", out[s]["neighbors"])
             write(f"distances_{s}", dist)
-            write(f"faiss_max_distance_{s}", dist.copy())
-            lucene_dist = -dist if args.space_type == "innerproduct" else dist.copy()
-            write(f"lucene_max_distance_{s}", lucene_dist)
-            score = raw_distance_to_opensearch_score(dist, args.space_type).astype(np.float32)
-            write(f"faiss_min_score_{s}", score)
-            write(f"lucene_min_score_{s}", score)
+            for engine in ENGINES:
+                max_distance, min_score = engine_threshold_values(engine, args.space_type, dist)
+                write(f"{engine}_max_distance_{s}", max_distance)
+                write(f"{engine}_min_score_{s}", min_score)
 
         f_out.attrs["space_type"] = args.space_type
         f_out.attrs["percentages"] = args.percentages
         f_out.attrs["take_n"] = args.take_n
         f_out.attrs["seed"] = args.seed
+
+
+def main():
+    args = parse_args()
+    train, test = load_input(args.input)
+    num_docs, num_queries = train.shape[0], test.shape[0]
+
+    suffixes = validate_args(args, num_docs)
+    print(f"Percentages: {args.percentages} -> fields filter{{{', filter'.join(suffixes)}}}")
+
+    attributes, passing_ids = assign_attributes(num_docs, args.percentages, suffixes, args.seed)
+    out = compute_ground_truth(train, test, passing_ids, suffixes, args)
+    write_output(args, attributes, out, suffixes)
 
     print(f"\nWritten to {args.output}")
     print(f"  attributes: {attributes.shape}")

@@ -12,8 +12,13 @@
     "target_dataset_filter_attributes": [
         "filter01pct",
         "filter1pct",
+        "filter5pct",
         "filter10pct",
-        "filter60pct"
+        "filter25pct",
+        "filter50pct",
+        "filter75pct",
+        "filter90pct",
+        "filter99pct"
     ],
     "target_index_max_num_segments": 1,
     "target_index_force_merge_timeout": 600.0,

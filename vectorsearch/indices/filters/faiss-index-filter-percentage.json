@@ -60,10 +60,25 @@
         "filter1pct": {
           "type": "keyword"
         },
+        "filter5pct": {
+          "type": "keyword"
+        },
         "filter10pct": {
           "type": "keyword"
         },
-        "filter60pct": {
+        "filter25pct": {
+          "type": "keyword"
+        },
+        "filter50pct": {
+          "type": "keyword"
+        },
+        "filter75pct": {
+          "type": "keyword"
+        },
+        "filter90pct": {
+          "type": "keyword"
+        },
+        "filter99pct": {
           "type": "keyword"
         }
       }
