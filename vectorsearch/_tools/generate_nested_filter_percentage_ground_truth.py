@@ -129,8 +129,8 @@ def load_vectors(args, total_vectors):
                              f"{f['test'].shape[0]:,}")
         print(f"Loading {total_vectors:,} train vectors and {args.num_queries:,} queries "
               f"from {args.input}...")
-        train = f["train"][:total_vectors].astype(np.float32)
-        test = f["test"][:args.num_queries].astype(np.float32)
+        train = f["train"][:total_vectors].astype(np.float32, copy=False)
+        test = f["test"][:args.num_queries].astype(np.float32, copy=False)
     return train, test
 
 
