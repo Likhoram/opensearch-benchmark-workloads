@@ -58,8 +58,8 @@ import time
 import h5py
 import numpy as np
 
-from generate_nested_dataset import calculate_distances, generate_parents
-from generate_radial_filter_percentage_ground_truth import assign_attributes, pct_suffix
+from nested_dataset_utils import calculate_distances, generate_parents
+from filter_percentage_utils import assign_attributes, pct_suffix
 from radial_threshold_utils import SUPPORTED_SPACE_TYPES, calculate_distances_batch
 
 DEFAULT_PERCENTAGES = [0.1, 1, 5, 10, 25, 50, 75, 90, 99]
